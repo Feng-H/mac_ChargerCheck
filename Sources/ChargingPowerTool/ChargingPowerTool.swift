@@ -153,8 +153,27 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
         lastUpdatedMenuItem.title = "最后更新：" + formatter.string(from: snapshot.timestamp)
 
         if let button = statusItem?.button {
+            let powerValue = snapshot.chargingPowerWatts
+            let iconName: String
+            if let chargingPower = powerValue {
+                if chargingPower < 0 {
+                    iconName = "bolt.slash"
+                } else if chargingPower > 0 {
+                    iconName = "bolt.fill"
+                } else {
+                    iconName = "bolt"
+                }
+            } else {
+                iconName = "bolt"
+            }
+
+            if let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "充电功率状态") {
+                button.image = image
+                button.image?.isTemplate = true
+            }
+
             let primaryPowerText: String
-            if let chargingPower = snapshot.chargingPowerWatts {
+            if let chargingPower = powerValue {
                 primaryPowerText = String(format: "%.0fW", chargingPower)
             } else {
                 primaryPowerText = "--"
