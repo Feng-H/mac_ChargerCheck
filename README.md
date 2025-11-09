@@ -1,4 +1,4 @@
-# ChargingPowerTool
+# ChargingCheck
 
 macOS 状态栏充电功率监视器，使用 IOKit 读取实时电压、电流并估算当前充电功率，同时展示适配器额定功率。支持以 Swift Package 形式构建，已经提供已打包的 `.app` 与 `.zip`。
 
