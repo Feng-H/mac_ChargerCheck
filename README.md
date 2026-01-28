@@ -11,6 +11,12 @@ brew tap Feng-H/tap
 brew install --cask chargingpowertool
 ```
 
+或者直接使用一行命令安装：
+
+```bash
+brew install --cask Feng-H/tap/chargingpowertool
+```
+
 也可以在 [Releases](https://github.com/Feng-H/mac_ChargerCheck/releases) 页面下载最新版本的 `.dmg` 或 `.zip` 文件。
 
 ## 功能
