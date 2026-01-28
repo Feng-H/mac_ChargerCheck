@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    permissions:
+      contents: write # 允许创建 Release
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Release
+        run: swift build -c release
+
+      - name: Prepare App Bundle
+        run: |
+          # 将编译好的二进制文件复制到 App 结构中
+          cp .build/release/ChargingPowerTool Dist/ChargingPowerTool.app/Contents/MacOS/ChargingPowerTool
+
+          # 从 tag 中获取版本号 (例如 v1.2.1 -> 1.2.1)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Release Version: $VERSION"
+
+          # 更新 Info.plist 中的版本号
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Dist/ChargingPowerTool.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Dist/ChargingPowerTool.app/Contents/Info.plist
+
+      - name: Ad-hoc Sign
+        run: |
+          # 进行本地 Ad-hoc 签名，避免“应用已损坏”提示
+          codesign --force --deep -s - Dist/ChargingPowerTool.app
+
+      - name: Package (Zip & DMG)
+        run: |
+          cd Dist
+          # 创建 Zip
+          zip -r ChargingPowerTool.zip ChargingPowerTool.app
+
+          # 创建 DMG
+          hdiutil create -volname "ChargingPowerTool" -srcfolder "ChargingPowerTool.app" -ov -format UDZO "ChargingPowerTool.dmg"
+
+          # 计算 SHA256 并保存到环境变量，供后续步骤使用
+          SHASUM=$(shasum -a 256 ChargingPowerTool.dmg | awk '{print $1}')
+          echo "SHA256=$SHASUM" >> $GITHUB_ENV
+          echo "Calculated SHA256: $SHASUM"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            Dist/ChargingPowerTool.zip
+            Dist/ChargingPowerTool.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew Tap
+        if: success()
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SHA256: ${{ env.SHA256 }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not set. Skipping Homebrew Tap update."
+            exit 0
+          fi
+
+          VERSION=${GITHUB_REF#refs/tags/v}
+
+          # 克隆 Tap 仓库
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/Feng-H/homebrew-tap.git tap-repo
+          cd tap-repo
+
+          # 更新 Cask 文件中的 version 和 sha256
+          # 注意：这里假设您的 Cask 格式是标准的
+          sed -i.bak "s/version \".*\"/version \"$VERSION\"/" Casks/chargingpowertool.rb
+          sed -i.bak "s/sha256 \".*\"/sha256 \"$SHA256\"/" Casks/chargingpowertool.rb
+          rm Casks/chargingpowertool.rb.bak
+
+          # 检查内容变更
+          cat Casks/chargingpowertool.rb
+
+          # 提交并推送
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+          git add Casks/chargingpowertool.rb
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update ChargingPowerTool to v$VERSION"
+            git push
+          fi
