@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.cursor.ChargingPowerTool</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>1.2.1</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.2.1</string>
     <key>CFBundleExecutable</key>
     <string>ChargingPowerTool</string>
     <key>CFBundleIconFile</key>
