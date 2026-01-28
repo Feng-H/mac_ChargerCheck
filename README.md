@@ -32,7 +32,8 @@ brew install --cask Feng-H/tap/chargingpowertool
 
 ## 构建与运行
 ```bash
-cd /Users/apple/cursor/mactool
+git clone https://github.com/Feng-H/mac_ChargerCheck.git
+cd mac_ChargerCheck
 swift build         # Debug 构建
 swift build -c release
 swift run           # 调试模式运行（会在终端保持前台）
