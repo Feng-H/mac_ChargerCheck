@@ -2,6 +2,17 @@
 
 macOS 状态栏充电功率监视器，使用 IOKit 读取实时电压、电流并估算当前充电功率，同时展示适配器额定功率。支持以 Swift Package 形式构建，已经提供已打包的 `.app` 与 `.zip`。
 
+## 安装 (Installation)
+
+推荐使用 Homebrew 安装：
+
+```bash
+brew tap Feng-H/tap
+brew install --cask chargingpowertool
+```
+
+也可以在 [Releases](https://github.com/Feng-H/mac_ChargerCheck/releases) 页面下载最新版本的 `.dmg` 或 `.zip` 文件。
+
 ## 功能
 - 状态栏常驻，显示当前充电功率（瓦）。
 - 根据功率正负自动切换图标：正值显示充电图标，负值显示放电图标。
