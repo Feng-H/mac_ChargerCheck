@@ -2,6 +2,46 @@
 
 macOS 状态栏充电功率监视器与进程能耗管理工具，使用 IOKit 读取实时电压、电流并估算当前充电功率，同时支持监控和管理高能耗应用程序。支持以 Swift Package 形式构建，已经提供已打包的 `.app` 与 `.zip`。
 
+## 安装 (Installation)
+
+### 方式一：使用 Homebrew（推荐）
+
+**首次安装：**
+
+```bash
+# 添加 tap 仓库
+brew tap Feng-H/tap
+
+# 安装应用
+brew install --cask chargingpowertool
+```
+
+或者使用一行命令直接安装：
+
+```bash
+brew install --cask Feng-H/tap/chargingpowertool
+```
+
+**更新到最新版本：**
+
+```bash
+brew upgrade --cask chargingpowertool
+```
+
+**卸载：**
+
+```bash
+brew uninstall --cask chargingpowertool
+```
+
+### 方式二：手动下载安装
+
+在 [Releases](https://github.com/Feng-H/mac_ChargerCheck/releases) 页面下载最新版本：
+- `.dmg` 文件：双击打开，拖拽应用到 Applications 文件夹
+- `.zip` 文件：解压后双击运行
+
+**首次运行提示：** 如果系统提示"无法验证开发者"，请右键点击应用，选择"打开"即可。
+
 ## 功能
 
 ### 充电功率监控
@@ -107,4 +147,3 @@ zip -qry ChargingPowerTool.zip ChargingPowerTool.app
 - 菜单显示电池详细信息
 
 欢迎根据需要调整刷新频率、UI 样式或添加通知/日志等功能。
-
