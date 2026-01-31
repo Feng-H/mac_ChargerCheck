@@ -532,16 +532,21 @@ final class ProcessEnergyCollector: ObservableObject {
                 // CPU 时间是以纳秒为单位，转换为秒
                 let cpuTimeSeconds = Double(cpuTimeDelta) / 1_000_000_000.0
                 cpuUsage = (cpuTimeSeconds / timeDelta) * 100.0
+
+                // 过滤掉 CPU 使用率过低的进程（仅在有历史数据时过滤）
+                guard cpuUsage >= 0.5 else {
+                    // 更新缓存后跳过
+                    previousCPUTimes[pid] = currentSample
+                    continue
+                }
             } else {
-                // 第一次采样，CPU 使用率为 0
-                cpuUsage = 0
+                // 第一次采样，保存基准数据，暂不计算 CPU 使用率
+                previousCPUTimes[pid] = currentSample
+                continue
             }
 
             // 更新缓存
             previousCPUTimes[pid] = currentSample
-
-            // 过滤掉 CPU 使用率过低的进程
-            guard cpuUsage >= 0.5 else { continue }
 
             // 估算能耗（CPU% × 5W）
             let estimatedPowerMW = cpuUsage * 50.0

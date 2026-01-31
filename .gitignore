@@ -1,10 +1,34 @@
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift Build
 /.build
 /Packages
+*.xcodeproj
 xcuserdata/
 DerivedData/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+
+# IDE
+.vscode/
+.vscode.backup/
+.idea/
+*.swp
+*.swo
+*~
+
+# Credentials
 .netrc
+
+# Distribution
 *.dmg
+*.zip
 Dist/*.dmg
+Dist/*.zip
+
+# Temporary files
+*.tmp
+*.log
