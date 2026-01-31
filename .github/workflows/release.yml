@@ -3,109 +3,96 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'  # 触发条件：推送 v* 标签（如 v2.0.0）
+      - 'v*'
 
 jobs:
   build-and-release:
     runs-on: macos-latest
+    permissions:
+      contents: write # 允许创建 Release
 
     steps:
-      - name: Checkout 代码
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 设置 Xcode 版本
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
+      - name: Build Release
+        run: swift build -c release
 
-      - name: 构建 Release 版本
+      - name: Prepare App Bundle
         run: |
-          swift build -c release
-          echo "✅ 构建完成"
+          # 将编译好的二进制文件复制到 App 结构中
+          cp .build/release/ChargingPowerTool Dist/ChargingPowerTool.app/Contents/MacOS/ChargingPowerTool
 
-      - name: 创建 .app 包结构
+          # 从 tag 中获取版本号 (例如 v1.2.1 -> 1.2.1)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Release Version: $VERSION"
+
+          # 更新 Info.plist 中的版本号
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Dist/ChargingPowerTool.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Dist/ChargingPowerTool.app/Contents/Info.plist
+
+      - name: Ad-hoc Sign
         run: |
-          # 创建 .app 目录结构
-          mkdir -p build/ChargingPowerTool.app/Contents/MacOS
-          mkdir -p build/ChargingPowerTool.app/Contents/Resources
+          # 进行本地 Ad-hoc 签名，避免“应用已损坏”提示
+          codesign --force --deep -s - Dist/ChargingPowerTool.app
 
-          # 复制可执行文件
-          cp .build/arm64-apple-macosx/release/ChargingPowerTool build/ChargingPowerTool.app/Contents/MacOS/
-
-          # 创建 Info.plist
-          cat > build/ChargingPowerTool.app/Contents/Info.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>ChargingPowerTool</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.example.ChargingPowerTool</string>
-              <key>CFBundleName</key>
-              <string>ChargingPowerTool</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>${GITHUB_REF_NAME#v}</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>LSMinimumSystemVersion</key>
-              <string>13.0</string>
-              <key>LSUIElement</key>
-              <true/>
-              <key>NSHighResolutionCapable</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
-
-          echo "✅ .app 包创建完成"
-
-      - name: 打包 ZIP
+      - name: Package (Zip & DMG)
         run: |
-          cd build
-          zip -qry ChargingPowerTool.zip ChargingPowerTool.app
-          ls -lh ChargingPowerTool.zip
-          echo "✅ ZIP 打包完成"
+          cd Dist
+          # 创建 Zip
+          zip -r ChargingPowerTool.zip ChargingPowerTool.app
 
-      - name: 生成 Release Notes
-        id: release_notes
-        run: |
-          # 从最新的 commit 消息中提取版本信息
-          NOTES=$(git log -1 --pretty=format:"%B")
+          # 创建 DMG
+          hdiutil create -volname "ChargingPowerTool" -srcfolder "ChargingPowerTool.app" -ov -format UDZO "ChargingPowerTool.dmg"
 
-          # 如果没有详细说明，使用默认模板
-          if [ -z "$NOTES" ]; then
-            NOTES="## 🎉 ChargingPowerTool ${GITHUB_REF_NAME}
+          # 计算 SHA256 并保存到环境变量，供后续步骤使用
+          SHASUM=$(shasum -a 256 ChargingPowerTool.dmg | awk '{print $1}')
+          echo "SHA256=$SHASUM" >> $GITHUB_ENV
+          echo "Calculated SHA256: $SHASUM"
 
-          ### 📦 下载
-          下载 \`ChargingPowerTool.zip\` 并解压，拖动 \`.app\` 到应用程序文件夹即可使用。
-
-          ### 🔧 系统要求
-          - macOS 13.0+
-          - Apple Silicon (M1/M2/M3) 或 Intel 处理器
-
-          ### 📝 更新内容
-          请查看 [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) 了解详细功能。"
-          fi
-
-          # 保存到输出
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$NOTES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: 创建 GitHub Release
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: build/ChargingPowerTool.zip
-          body: ${{ steps.release_notes.outputs.notes }}
-          draft: false
-          prerelease: false
+          files: |
+            Dist/ChargingPowerTool.zip
+            Dist/ChargingPowerTool.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 输出成功信息
+      - name: Update Homebrew Tap
+        if: success()
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SHA256: ${{ env.SHA256 }}
         run: |
-          echo "🎉 Release ${GITHUB_REF_NAME} 发布成功！"
-          echo "📦 下载地址: https://github.com/${{ github.repository }}/releases/tag/${GITHUB_REF_NAME}"
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not set. Skipping Homebrew Tap update."
+            exit 0
+          fi
+
+          VERSION=${GITHUB_REF#refs/tags/v}
+
+          # 克隆 Tap 仓库
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/Feng-H/homebrew-tap.git tap-repo
+          cd tap-repo
+
+          # 更新 Cask 文件中的 version 和 sha256
+          # 注意：这里假设您的 Cask 格式是标准的
+          sed -i.bak "s/version \".*\"/version \"$VERSION\"/" Casks/chargingpowertool.rb
+          sed -i.bak "s/sha256 \".*\"/sha256 \"$SHA256\"/" Casks/chargingpowertool.rb
+          rm Casks/chargingpowertool.rb.bak
+
+          # 检查内容变更
+          cat Casks/chargingpowertool.rb
+
+          # 提交并推送
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+          git add Casks/chargingpowertool.rb
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update ChargingPowerTool to v$VERSION"
+            git push
+          fi
