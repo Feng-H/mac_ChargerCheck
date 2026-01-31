@@ -1,0 +1,46 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Xcode 版本
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Debug 构建
+        run: |
+          swift build
+          echo "✅ Debug 构建成功"
+
+      - name: Release 构建
+        run: |
+          swift build -c release
+          echo "✅ Release 构建成功"
+
+      - name: 代码检查
+        run: |
+          # 检查代码行数
+          echo "📊 代码统计："
+          find Sources -name "*.swift" -exec wc -l {} + | tail -1
+
+          # 检查可执行文件大小
+          echo "📦 可执行文件大小："
+          ls -lh .build/arm64-apple-macosx/release/ChargingPowerTool
+
+      - name: 构建报告
+        run: |
+          echo "✅ 所有构建任务完成"
+          echo "- Debug 构建: ✓"
+          echo "- Release 构建: ✓"

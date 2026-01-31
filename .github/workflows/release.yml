@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 触发条件：推送 v* 标签（如 v2.0.0）
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Xcode 版本
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: 构建 Release 版本
+        run: |
+          swift build -c release
+          echo "✅ 构建完成"
+
+      - name: 创建 .app 包结构
+        run: |
+          # 创建 .app 目录结构
+          mkdir -p build/ChargingPowerTool.app/Contents/MacOS
+          mkdir -p build/ChargingPowerTool.app/Contents/Resources
+
+          # 复制可执行文件
+          cp .build/arm64-apple-macosx/release/ChargingPowerTool build/ChargingPowerTool.app/Contents/MacOS/
+
+          # 创建 Info.plist
+          cat > build/ChargingPowerTool.app/Contents/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>ChargingPowerTool</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.example.ChargingPowerTool</string>
+              <key>CFBundleName</key>
+              <string>ChargingPowerTool</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${GITHUB_REF_NAME#v}</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>13.0</string>
+              <key>LSUIElement</key>
+              <true/>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          echo "✅ .app 包创建完成"
+
+      - name: 打包 ZIP
+        run: |
+          cd build
+          zip -qry ChargingPowerTool.zip ChargingPowerTool.app
+          ls -lh ChargingPowerTool.zip
+          echo "✅ ZIP 打包完成"
+
+      - name: 生成 Release Notes
+        id: release_notes
+        run: |
+          # 从最新的 commit 消息中提取版本信息
+          NOTES=$(git log -1 --pretty=format:"%B")
+
+          # 如果没有详细说明，使用默认模板
+          if [ -z "$NOTES" ]; then
+            NOTES="## 🎉 ChargingPowerTool ${GITHUB_REF_NAME}
+
+          ### 📦 下载
+          下载 \`ChargingPowerTool.zip\` 并解压，拖动 \`.app\` 到应用程序文件夹即可使用。
+
+          ### 🔧 系统要求
+          - macOS 13.0+
+          - Apple Silicon (M1/M2/M3) 或 Intel 处理器
+
+          ### 📝 更新内容
+          请查看 [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) 了解详细功能。"
+          fi
+
+          # 保存到输出
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/ChargingPowerTool.zip
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 输出成功信息
+        run: |
+          echo "🎉 Release ${GITHUB_REF_NAME} 发布成功！"
+          echo "📦 下载地址: https://github.com/${{ github.repository }}/releases/tag/${GITHUB_REF_NAME}"
