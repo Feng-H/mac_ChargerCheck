@@ -489,7 +489,15 @@ final class ProcessEnergyCollector: ObservableObject {
     }
 
     func startRefreshing() async {
+        // Sample A
         await refresh()
+
+        // Wait 1 second for differential sample to populate initial data
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+
+        // Sample B (Immediate feedback)
+        await refresh()
+
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.refresh()
@@ -510,61 +518,90 @@ final class ProcessEnergyCollector: ObservableObject {
         lastError = nil
 
         var processInfos: [ProcessEnergyInfo] = []
+        let allPIDs = getAllPIDs()
+        let currentTimestamp = Date()
+
+        // Optimize: Batch fetch NSRunningApplications for GUI apps
         let runningApps = NSWorkspace.shared.runningApplications
-
+        var runningAppsMap: [pid_t: NSRunningApplication] = [:]
         for app in runningApps {
-            let pid = app.processIdentifier
+            runningAppsMap[app.processIdentifier] = app
+        }
 
-            // 获取 CPU 信息
+        for pid in allPIDs {
+            // Get CPU Info
             guard let cpuInfo = getCPUInfo(for: pid) else {
                 continue
             }
 
             let currentSample = CPUSample(totalTime: cpuInfo.totalTime, timestamp: cpuInfo.timestamp)
 
-            // 计算 CPU 使用率
+            // Calculate CPU Usage
             let cpuUsage: Double
             if let previousSample = previousCPUTimes[pid] {
                 let timeDelta = currentSample.timestamp.timeIntervalSince(previousSample.timestamp)
                 guard timeDelta > 0 else { continue }
 
-                let cpuTimeDelta = currentSample.totalTime - previousSample.totalTime
-                // CPU 时间是以纳秒为单位，转换为秒
+                let cpuTimeDelta = max(0, currentSample.totalTime - previousSample.totalTime)
+                // CPU time is in ns
                 let cpuTimeSeconds = Double(cpuTimeDelta) / 1_000_000_000.0
                 cpuUsage = (cpuTimeSeconds / timeDelta) * 100.0
 
-                // 过滤掉 CPU 使用率过低的进程（仅在有历史数据时过滤）
-                guard cpuUsage >= 0.5 else {
-                    // 更新缓存后跳过
-                    previousCPUTimes[pid] = currentSample
+                // Update cache
+                previousCPUTimes[pid] = currentSample
+
+                // Filter: Show processes with > 0.1% CPU to include active background tasks
+                // but reduce noise from completely idle processes
+                if cpuUsage < 0.1 {
                     continue
                 }
             } else {
-                // 第一次采样，保存基准数据，暂不计算 CPU 使用率
+                // First sample, save baseline
                 previousCPUTimes[pid] = currentSample
                 continue
             }
 
-            // 更新缓存
-            previousCPUTimes[pid] = currentSample
-
-            // 估算能耗（CPU% × 5W）
+            // Estimate Power (CPU% * 50mW - heuristic)
             let estimatedPowerMW = cpuUsage * 50.0
+
+            // Metadata
+            let name: String
+            let bundleID: String?
+            let icon: NSImage?
+
+            if let app = runningAppsMap[pid] {
+                name = app.localizedName ?? getProcessName(pid: pid) ?? "Process \(pid)"
+                bundleID = app.bundleIdentifier
+                icon = app.icon
+            } else {
+                name = getProcessName(pid: pid) ?? "Process \(pid)"
+                bundleID = nil
+                icon = nil
+            }
 
             let processInfo = ProcessEnergyInfo(
                 id: pid,
-                name: app.localizedName ?? "未知",
-                bundleIdentifier: app.bundleIdentifier,
-                icon: app.icon,
+                name: name,
+                bundleIdentifier: bundleID,
+                icon: icon,
                 cpuUsage: cpuUsage,
                 estimatedPowerMW: estimatedPowerMW
             )
             processInfos.append(processInfo)
         }
 
-        // 按能耗降序排序
+        // Clean up cache for terminated processes
+        let currentPIDSet = Set(allPIDs)
+        let cachedPIDs = Array(previousCPUTimes.keys)
+        for pid in cachedPIDs {
+            if !currentPIDSet.contains(pid) {
+                previousCPUTimes.removeValue(forKey: pid)
+            }
+        }
+
+        // Sort descending by power
         processes = processInfos.sorted { $0.estimatedPowerMW > $1.estimatedPowerMW }
-        lastUpdateTime = Date()
+        lastUpdateTime = currentTimestamp
         isRefreshing = false
     }
 
@@ -630,6 +667,38 @@ private func fetchSmartBatteryProperties() -> [String: Any]? {
         return nil
     }
     return dictionary
+}
+
+private func getAllPIDs() -> [pid_t] {
+    let limit = 4096 // Typical pid max
+    var pids = [pid_t](repeating: 0, count: limit)
+    let count = proc_listallpids(&pids, Int32(MemoryLayout<pid_t>.size * limit))
+    if count > 0 {
+        // proc_listallpids returns number of bytes, so divide by size of pid_t
+        let numPids = Int(count) / MemoryLayout<pid_t>.size
+        return Array(pids.prefix(numPids))
+    }
+    return []
+}
+
+private func getProcessName(pid: pid_t) -> String? {
+    var buffer = [Int8](repeating: 0, count: 4096)
+    let result = proc_name(pid, &buffer, UInt32(buffer.count))
+    if result > 0 {
+        let validBytes = buffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+        return String(decoding: validBytes, as: UTF8.self)
+    }
+    return nil
+}
+
+private func getProcessPath(pid: pid_t) -> String? {
+    var buffer = [Int8](repeating: 0, count: 4096)
+    let result = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+    if result > 0 {
+        let validBytes = buffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+        return String(decoding: validBytes, as: UTF8.self)
+    }
+    return nil
 }
 
 private func getCPUInfo(for pid: pid_t) -> (totalTime: UInt64, timestamp: Date)? {
