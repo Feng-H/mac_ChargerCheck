@@ -45,14 +45,15 @@ final class LoginItemController: ObservableObject {
         case .requiresApproval:
             // 已注册、等待用户在系统设置中允许，不重复注册
             return .requiresApproval
-        case .notRegistered:
+        case .notRegistered, .notFound:
+            // 注意：全新安装时 Background Task Management 尚未记录过本应用，
+            // status 会返回 .notFound——这并不代表不可用，仍需调用 register()，
+            // 成功后状态才会变为 .enabled / .requiresApproval。
             do {
                 try SMAppService.mainApp.register()
             } catch {
                 return .failed("设置开机自启动失败：\(error.localizedDescription)")
             }
-        case .notFound:
-            return .unavailable
         @unknown default:
             return .unavailable
         }
@@ -70,8 +71,8 @@ final class LoginItemController: ObservableObject {
         switch status {
         case .enabled: return .enabled
         case .requiresApproval: return .requiresApproval
-        case .notRegistered: return .disabled
-        case .notFound: return .unavailable
+        // .notFound 多为“从未注册过”的初始状态，仍可尝试注册，归为关闭而非不可用
+        case .notRegistered, .notFound: return .disabled
         @unknown default: return .unavailable
         }
     }
