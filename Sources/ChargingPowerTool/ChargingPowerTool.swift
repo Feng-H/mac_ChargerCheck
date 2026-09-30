@@ -72,6 +72,9 @@ private struct SettingsView: View {
             Text("数据每 5 秒刷新一次。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            Text("充电提示音设置可从状态栏菜单打开（⌘,）。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
         .frame(width: 260, height: 160)
         .padding()
@@ -235,6 +238,15 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
     // 新增：进程能耗窗口
     private var processEnergyWindow: NSWindow?
 
+    // 新增：充电提示音设置窗口
+    private var soundSettingsWindow: NSWindow?
+
+    // 新增：充电状态变化监听（用于即时播放提示音）
+    private var powerSourceRunLoopSource: CFRunLoopSource?
+    private var lastIsCharging: Bool?
+    private var lastTransitionDate: Date?
+    private var libraryModeItem: NSMenuItem?
+
     private let stateMenuItem = NSMenuItem(title: "状态：--", action: nil, keyEquivalent: "")
     private let chargingPowerMenuItem = NSMenuItem(title: "当前充电功率：--", action: nil, keyEquivalent: "")
     private let batteryVoltageMenuItem = NSMenuItem(title: "电池电压：--", action: nil, keyEquivalent: "")
@@ -245,7 +257,13 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
-        refreshUI(with: powerProvider.collectSnapshot())
+        setupPowerSourceNotifications()
+        SystemChimeController.shared.refreshState()
+
+        let initialSnapshot = powerProvider.collectSnapshot()
+        lastIsCharging = initialSnapshot.isCharging
+        refreshUI(with: initialSnapshot)
+
         timer = Timer.scheduledTimer(timeInterval: 5, target: self, selector: #selector(handleTimer(_:)), userInfo: nil, repeats: true)
         if let timer {
             RunLoop.main.add(timer, forMode: .common)
@@ -254,6 +272,9 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         timer?.invalidate()
+        if let source = powerSourceRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode)
+        }
     }
 
     @objc private func terminateApp() {
@@ -261,8 +282,46 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func handleTimer(_ timer: Timer) {
-        let snapshot = powerProvider.collectSnapshot()
+        processPowerSnapshot(powerProvider.collectSnapshot())
+    }
+
+    /// 统一入口：刷新 UI 并检测充电状态变化（提示音）
+    private func processPowerSnapshot(_ snapshot: ChargingPowerSnapshot) {
         refreshUI(with: snapshot)
+        handleChargingTransition(snapshot.isCharging)
+    }
+
+    /// 充电状态发生 插入→拔出 / 拔出→插入 变化时播放提示音（默认关闭，可在设置中开启）
+    private func handleChargingTransition(_ newState: Bool?) {
+        guard let newState else { return }
+        let now = Date()
+        if let oldState = lastIsCharging, oldState != newState,
+           lastTransitionDate.map({ now.timeIntervalSince($0) > 1.5 }) ?? true {
+            lastTransitionDate = now
+            let settings = ChargingSoundSettings.shared
+            if newState {
+                if settings.playOnConnect { settings.playSelectedSound() }
+            } else {
+                if settings.playOnDisconnect { settings.playSelectedSound() }
+            }
+        }
+        lastIsCharging = newState
+    }
+
+    /// 监听系统电源事件（插入/拔出充电器等），即时响应而非等待 5 秒轮询
+    private func setupPowerSourceNotifications() {
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        let callback: IOPowerSourceCallbackType = { rawContext in
+            guard let rawContext else { return }
+            Task { @MainActor in
+                let appDelegate = Unmanaged<MenuBarAppDelegate>.fromOpaque(rawContext).takeUnretainedValue()
+                appDelegate.processPowerSnapshot(appDelegate.powerProvider.collectSnapshot())
+            }
+        }
+        if let source = IOPSNotificationCreateRunLoopSource(callback, context)?.takeRetainedValue() {
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+            powerSourceRunLoopSource = source
+        }
     }
 
     private func setupStatusItem() {
@@ -275,6 +334,7 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.autoenablesItems = false
+        menu.delegate = self
         menu.addItem(stateMenuItem)
         menu.addItem(chargingPowerMenuItem)
         menu.addItem(batteryVoltageMenuItem)
@@ -292,6 +352,26 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
         )
         energyMenuItem.target = self
         menu.addItem(energyMenuItem)
+        menu.addItem(.separator())
+
+        // 新增：充电提示音设置与图书馆模式快捷开关
+        let soundSettingsItem = NSMenuItem(
+            title: "充电提示音设置...",
+            action: #selector(showSoundSettingsWindow),
+            keyEquivalent: ","
+        )
+        soundSettingsItem.target = self
+        menu.addItem(soundSettingsItem)
+
+        let libraryItem = NSMenuItem(
+            title: "图书馆模式（关闭系统充电音）",
+            action: #selector(toggleLibraryMode),
+            keyEquivalent: ""
+        )
+        libraryItem.target = self
+        menu.addItem(libraryItem)
+        libraryModeItem = libraryItem
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "退出 ChargingPowerTool", action: #selector(terminateApp), keyEquivalent: "q")
@@ -326,6 +406,57 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
         processEnergyWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: 充电提示音
+
+    @objc private func showSoundSettingsWindow() {
+        if let existingWindow = soundSettingsWindow {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let contentView = ChargingSoundSettingsView()
+        let hostingController = NSHostingController(rootView: contentView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 580),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.title = "充电提示音设置"
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+
+        soundSettingsWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 一键开关注释：关闭/恢复 macOS 系统的充电提示音（PowerChime）
+    @objc private func toggleLibraryMode() {
+        let controller = SystemChimeController.shared
+        controller.setDisabled(!(controller.isDisabled ?? false))
+    }
+
+    private func updateLibraryModeItem() {
+        guard let item = libraryModeItem else { return }
+        switch SystemChimeController.shared.isDisabled {
+        case .some(true):
+            item.state = .on
+            item.title = "图书馆模式（系统充电音已关闭）"
+        case .some(false):
+            item.state = .off
+            item.title = "图书馆模式（关闭系统充电音）"
+        case .none:
+            item.state = .off
+            item.title = "图书馆模式（正在读取状态…）"
+            SystemChimeController.shared.refreshState()
+        }
     }
 
     private func refreshUI(with snapshot: ChargingPowerSnapshot) {
@@ -404,6 +535,15 @@ extension MenuBarAppDelegate: NSWindowDelegate {
         if notification.object as? NSWindow === processEnergyWindow {
             processEnergyWindow = nil
         }
+        if notification.object as? NSWindow === soundSettingsWindow {
+            soundSettingsWindow = nil
+        }
+    }
+}
+
+extension MenuBarAppDelegate: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        updateLibraryModeItem()
     }
 }
 
