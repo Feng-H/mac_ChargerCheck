@@ -258,6 +258,10 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
     private let batteryCurrentMenuItem = NSMenuItem(title: "电池电流：--", action: nil, keyEquivalent: "")
     private let adapterRatedMenuItem = NSMenuItem(title: "适配器额定功率：--", action: nil, keyEquivalent: "")
     private let lastUpdatedMenuItem = NSMenuItem(title: "最后更新：--", action: nil, keyEquivalent: "")
+    private let versionMenuItem: NSMenuItem = {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "--"
+        return NSMenuItem(title: "版本 v\(version)", action: nil, keyEquivalent: "")
+    }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -387,6 +391,7 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
         launchAtLoginItem = launchItem
 
         menu.addItem(.separator())
+        menu.addItem(versionMenuItem)
 
         let quitItem = NSMenuItem(title: "退出 ChargingPowerTool", action: #selector(terminateApp), keyEquivalent: "q")
         quitItem.target = self
