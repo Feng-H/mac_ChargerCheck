@@ -32,3 +32,6 @@ Dist/*.zip
 # Temporary files
 *.tmp
 *.log
+
+# pi agent session files
+.pi/
