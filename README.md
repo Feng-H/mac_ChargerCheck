@@ -75,8 +75,8 @@ brew uninstall --cask chargingpowertool
 
 ## 目录结构
 - `Sources/ChargingPowerTool/`：主程序（SwiftUI + IOKit）。
-- `Dist/ChargingPowerTool.app`：已构建的应用包。
-- `Dist/ChargingPowerTool.zip`：打包好的压缩文件，可直接分发。
+- `Packaging/`：打包模板（`Info.plist`、`AppIcon.icns`），用于组装 `.app`。
+- `Dist/`：构建产物目录（`.app` / `.zip` / `.dmg`），已 gitignore，按下方「打包步骤」生成。
 
 ## 构建与运行
 ```bash
@@ -90,15 +90,22 @@ swift run                # 调试模式运行（会在终端保持前台）
 # 1. 使用 Release 构建
 swift build -c release
 
-# 2. 更新 .app 内可执行文件
-cp .build/release/ChargingPowerTool Dist/ChargingPowerTool.app/Contents/MacOS/ChargingPowerTool
+# 2. 组装 .app（模板在 Packaging/，发版时记得同步更新其中的版本号）
+mkdir -p Dist/ChargingPowerTool.app/Contents/MacOS Dist/ChargingPowerTool.app/Contents/Resources
+cp .build/release/ChargingPowerTool Dist/ChargingPowerTool.app/Contents/MacOS/
+cp Packaging/Info.plist Dist/ChargingPowerTool.app/Contents/
+cp Packaging/AppIcon.icns Dist/ChargingPowerTool.app/Contents/Resources/
 
-# 3. 打包成 zip
+# 3. ad-hoc 签名
+codesign --force --deep -s - Dist/ChargingPowerTool.app
+
+# 4. 打包 zip / dmg
 cd Dist
 zip -qry ChargingPowerTool.zip ChargingPowerTool.app
+hdiutil create -volname ChargingPowerTool -srcfolder ChargingPowerTool.app -ov -format UDZO ChargingPowerTool.dmg
 ```
 
-如需重新构建 Info.plist，可参考 `Dist/ChargingPowerTool.app/Contents/Info.plist`（`LSUIElement` 已设为 `true`，隐藏 Dock 图标）。
+`Packaging/Info.plist` 中 `LSUIElement` 已设为 `true`（隐藏 Dock 图标，仅状态栏常驻）。
 
 ## 签名与公证（可选）
 1. 使用 Developer ID 证书签名：

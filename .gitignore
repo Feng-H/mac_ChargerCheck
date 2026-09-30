@@ -26,8 +26,7 @@ DerivedData/
 # Distribution
 *.dmg
 *.zip
-Dist/*.dmg
-Dist/*.zip
+/Dist/
 
 # Temporary files
 *.tmp
