@@ -50,6 +50,11 @@ brew uninstall --cask chargingpowertool
 - 菜单中展示最新电池电压、电流、适配器额定功率以及更新时间。
 - 若系统暂未提供某项数据，会显示 `--` 以避免误导。
 
+### 🆕 开机自启动（v2.3.0 新增）
+- 状态栏菜单勾选「开机自启动」即可随登录自动启动，取消勾选即关闭
+- 基于 SMAppService（macOS 13+）实现，无需辅助进程与管理员权限
+- 若系统要求确认，在「系统设置 → 通用 → 登录项与扩展」中允许 ChargingPowerTool 即可
+
 ### 🆕 充电提示音控制（v2.2.0 新增）
 - **关闭系统充电音（图书馆模式）**：一键关闭 macOS 插入充电器时系统播放的“叮”声，无需管理员密码，可随时恢复默认
   - 通过 `com.apple.PowerChime` 系统偏好项实现（正确写法为 `ChimeOnNoHardware = true`，旧教程的 `ChimeOnAllHardware -bool false` 在新系统上无效）

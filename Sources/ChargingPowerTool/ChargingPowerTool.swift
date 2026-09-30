@@ -3,6 +3,7 @@ import AppKit
 import IOKit
 import IOKit.ps
 import Darwin
+import ServiceManagement
 
 // MARK: - Data Models
 
@@ -246,6 +247,7 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
     private var lastIsCharging: Bool?
     private var lastTransitionDate: Date?
     private var libraryModeItem: NSMenuItem?
+    private var launchAtLoginItem: NSMenuItem?
 
     private let stateMenuItem = NSMenuItem(title: "状态：--", action: nil, keyEquivalent: "")
     private let chargingPowerMenuItem = NSMenuItem(title: "当前充电功率：--", action: nil, keyEquivalent: "")
@@ -372,6 +374,15 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(libraryItem)
         libraryModeItem = libraryItem
 
+        let launchItem = NSMenuItem(
+            title: "开机自启动",
+            action: #selector(toggleLaunchAtLogin),
+            keyEquivalent: ""
+        )
+        launchItem.target = self
+        menu.addItem(launchItem)
+        launchAtLoginItem = launchItem
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "退出 ChargingPowerTool", action: #selector(terminateApp), keyEquivalent: "q")
@@ -441,6 +452,69 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleLibraryMode() {
         let controller = SystemChimeController.shared
         controller.setDisabled(!(controller.isDisabled ?? false))
+    }
+
+    // MARK: 开机自启动
+
+    /// 切换开机自启动（SMAppService），并在需要时弹出系统确认/错误提示
+    @objc private func toggleLaunchAtLogin() {
+        let result = LoginItemController.shared.toggle()
+        switch result {
+        case .enabled, .disabled:
+            break
+        case .requiresApproval:
+            showAlert(
+                title: "需要在系统设置中允许",
+                message: "ChargingPowerTool 已注册为登录项。\n请前往「系统设置 → 通用 → 登录项与扩展」，在列表中允许 ChargingPowerTool。",
+                confirmTitle: "打开系统设置"
+            ) { _ in
+                SMAppService.openSystemSettingsLoginItems()
+            }
+        case .unavailable:
+            showAlert(
+                title: "暂不可用",
+                message: "开机自启动需要从 .app 应用包运行时才能设置（调试模式 swift run 下不支持）。",
+                confirmTitle: "好"
+            )
+        case .failed(let reason):
+            showAlert(title: "设置失败", message: reason, confirmTitle: "好")
+        }
+        updateLaunchAtLoginItem()
+    }
+
+    private func updateLaunchAtLoginItem() {
+        guard let item = launchAtLoginItem else { return }
+        let controller = LoginItemController.shared
+        controller.refreshState()
+        switch controller.state {
+        case .enabled:
+            item.state = .on
+            item.title = "开机自启动"
+        case .requiresApproval:
+            item.state = .mixed
+            item.title = "开机自启动（需在系统设置中允许）"
+        case .disabled:
+            item.state = .off
+            item.title = "开机自启动"
+        case .unavailable:
+            item.state = .off
+            item.title = "开机自启动（不可用）"
+        }
+    }
+
+    private func showAlert(
+        title: String,
+        message: String,
+        confirmTitle: String,
+        onConfirm: ((NSApplication.ModalResponse) -> Void)? = nil
+    ) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: confirmTitle)
+        let response = alert.runModal()
+        onConfirm?(response)
     }
 
     private func updateLibraryModeItem() {
@@ -544,6 +618,7 @@ extension MenuBarAppDelegate: NSWindowDelegate {
 extension MenuBarAppDelegate: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         updateLibraryModeItem()
+        updateLaunchAtLoginItem()
     }
 }
 
