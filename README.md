@@ -29,8 +29,8 @@ brew uninstall --cask chargingpowertool             # 卸载
 ### 功能
 
 #### 充电功率监控
-- 状态栏常驻显示当前充电功率（瓦），根据功率正负自动切换充 / 放电图标
-- 菜单展示电池电压、电流、适配器额定功率与更新时间；数据缺失时显示 `--`
+- 状态栏常驻显示当前充电功率（瓦）；图标三态：正在充电（实心闪电）/ 已接电源·电池已满（空心闪电）/ 使用电池（斜杠闪电）
+- 菜单展示电池电压、电流、适配器额定功率与更新时间（底部显示当前版本号）；数据缺失时显示 `--`
 - 基于 IOPowerSource 通知即时感知插拔，同时每 5 秒定时刷新
 
 #### 充电提示音控制
@@ -92,6 +92,8 @@ hdiutil create -volname ChargingPowerTool -srcfolder ChargingPowerTool.app -ov -
 - 未使用私有 API，无法保证在所有未来硬件上可用
 
 ### 版本历史
+- **v2.3.2**（2026-09-30）：菜单底部新增「版本 vX.Y.Z」显示
+- **v2.3.1**（2026-09-30）：状态栏图标三态化（正在充电/已接电源·已满/使用电池），修复插电但电池已满时与用电池图标相同的问题；功率显示符号规范化
 - **v2.3.0**（2026-09-30）：新增开机自启动（SMAppService 一键开关）；修复全新安装时登录项状态误判
 - **v2.2.0**（2026-09-30）：新增图书馆模式与自定义充电提示音；IOPS 通知即时感知插拔
 - **v2.1.0**（2026-01-31）：进程能耗监控增强与细节优化
@@ -125,8 +127,8 @@ Grab the latest build from [Releases](https://github.com/Feng-H/mac_ChargerCheck
 ### Features
 
 #### Charging Power Monitor
-- Live charging wattage in the menu bar with automatic charge/discharge icon switching
-- Menu details: battery voltage, current, adapter rated power, and update time (`--` when unavailable)
+- Live charging wattage in the menu bar; three-state icon: charging (solid bolt) / on AC with full battery (outline bolt) / on battery (slashed bolt)
+- Menu details: battery voltage, current, adapter rated power, update time, and app version (`--` when unavailable)
 - Instant plug/unplug detection via IOPowerSource notifications, plus a 5-second refresh timer
 
 #### Charging Sound Control
@@ -188,6 +190,8 @@ hdiutil create -volname ChargingPowerTool -srcfolder ChargingPowerTool.app -ov -
 - No private APIs are used, so future hardware support can't be guaranteed
 
 ### Version History
+- **v2.3.2** (2026-09-30): show the app version at the bottom of the menu
+- **v2.3.1** (2026-09-30): three-state menu-bar icon (charging / on AC, battery full / on battery); fixed icons colliding between "plugged in, battery full" and "on battery"; normalized wattage sign
 - **v2.3.0** (2026-09-30): launch-at-login toggle (SMAppService); fix login-item state misjudged on fresh installs
 - **v2.2.0** (2026-09-30): Library Mode + custom charging sounds; instant plug/unplug detection via IOPS notifications
 - **v2.1.0** (2026-01-31): process energy monitor improvements
