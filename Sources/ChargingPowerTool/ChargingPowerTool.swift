@@ -543,7 +543,7 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshUI(with snapshot: ChargingPowerSnapshot) {
         // 图标按语义三态选择：正在充电 / 已接电源（电池已满）/ 使用电池。
-        // 不再用功率正负判断——电池充满时插着电源电流≈0 甚至微负，
+        // 不用功率正负判断——电池充满时插着电源电流≈0 甚至微负，
         // 会与用电池状态撞图标（都是 bolt.slash）。
         let iconName: String
         switch snapshot.isCharging {
@@ -552,11 +552,7 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
         case .some(false):
             iconName = (snapshot.isOnACPower == true) ? "bolt" : "bolt.slash"
         case .none:
-            if let watts = snapshot.chargingPowerWatts {
-                iconName = watts > 0 ? "bolt.fill" : (watts < 0 ? "bolt.slash" : "bolt")
-            } else {
-                iconName = "bolt"
-            }
+            iconName = "bolt"
         }
 
         let statusTitle: String
@@ -599,28 +595,15 @@ final class MenuBarAppDelegate: NSObject, NSApplicationDelegate {
         lastUpdatedMenuItem.title = "最后更新：" + formatter.string(from: snapshot.timestamp)
 
         if let button = statusItem?.button {
-            let powerValue = snapshot.chargingPowerWatts
-            let iconName: String
-            if let chargingPower = powerValue {
-                if chargingPower < 0 {
-                    iconName = "bolt.slash"
-                } else if chargingPower > 0 {
-                    iconName = "bolt.fill"
-                } else {
-                    iconName = "bolt"
-                }
-            } else {
-                iconName = "bolt"
-            }
-
             if let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "充电功率状态") {
                 button.image = image
                 button.image?.isTemplate = true
             }
 
+            // 保留一位小数：涓流充电（如 0.4W）取整会显示成 0W，容易误判为没在充电
             let primaryPowerText: String
-            if let chargingPower = powerValue {
-                primaryPowerText = String(format: "%.0fW", chargingPower)
+            if let chargingPower = snapshot.chargingPowerWatts {
+                primaryPowerText = String(format: "%.1fW", chargingPower)
             } else {
                 primaryPowerText = "--"
             }
@@ -656,8 +639,9 @@ private final class PowerDataProvider {
 
         var isCharging: Bool?
         var isOnACPower: Bool?
-        var batteryVoltageVolts: Double?
-        var batteryCurrentAmps: Double?
+        var iopsVoltage: Double?
+        var iopsAppleRawCurrent: Double?
+        var iopsCurrent: Double?
 
         if let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
            let powerSources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] {
@@ -679,26 +663,36 @@ private final class PowerDataProvider {
                     isOnACPower = (powerSourceState == kIOPSACPowerValue)
                 }
 
-                if batteryVoltageVolts == nil {
-                    batteryVoltageVolts = milliValueToBase(from: description, key: kIOPSVoltageKey as String)
+                if iopsVoltage == nil {
+                    iopsVoltage = milliValueToBase(from: description, key: kIOPSVoltageKey as String)
                 }
-
-                if batteryCurrentAmps == nil {
-                    batteryCurrentAmps = milliValueToBase(from: description, key: appleRawCurrentKey)
-                        ?? milliValueToBase(from: description, key: kIOPSCurrentKey as String)
+                if iopsAppleRawCurrent == nil {
+                    iopsAppleRawCurrent = milliValueToBase(from: description, key: appleRawCurrentKey)
+                }
+                if iopsCurrent == nil {
+                    iopsCurrent = milliValueToBase(from: description, key: kIOPSCurrentKey as String)
                 }
             }
         }
 
+        var smartVoltage: Double?
+        var smartAmperage: Double?
+        var smartInstantAmperage: Double?
         if let smartBattery = fetchSmartBatteryProperties() {
-            if batteryVoltageVolts == nil {
-                batteryVoltageVolts = milliValueToBase(from: smartBattery, key: smartBatteryVoltageKey)
-            }
-            if batteryCurrentAmps == nil {
-                batteryCurrentAmps = milliValueToBase(from: smartBattery, key: smartBatteryAmperageKey)
-                    ?? milliValueToBase(from: smartBattery, key: smartBatteryInstantAmperageKey)
-            }
+            smartVoltage = milliValueToBase(from: smartBattery, key: smartBatteryVoltageKey)
+                ?? milliValueToBase(from: smartBattery, key: smartBatteryRawVoltageKey)
+            smartAmperage = milliValueToBase(from: smartBattery, key: smartBatteryAmperageKey)
+            smartInstantAmperage = milliValueToBase(from: smartBattery, key: smartBatteryInstantAmperageKey)
         }
+
+        // 部分机型的 IOPS 描述里 Current 恒为 0（占位值，实际电流在 AppleSmartBattery 的
+        // Amperage/InstantAmperage 里），若按 nil-回退链取值会把它当成有效读数，屏蔽真实
+        // 电流导致功率恒为 0W。这里改为：候选里取第一个非零读数；全为零才接受零
+        // （电池充满插着电源时电流确实≈0）。
+        let batteryVoltageVolts = firstMeaningful([iopsVoltage, smartVoltage])
+        let batteryCurrentAmps = firstMeaningful([
+            iopsAppleRawCurrent, smartAmperage, smartInstantAmperage, iopsCurrent
+        ])
 
         // 充电功率符号规范化：不同机型/系统的电流符号约定不一致，
         // 统一为 充电=正、用电池=负（幅度小于 0.05W 视为 0，避免出现 -0W）
@@ -769,6 +763,12 @@ private func milliValueToBase(from dictionary: [String: Any], key: String) -> Do
     return rawValue / 1000.0
 }
 
+/// 从候选读数中取第一个非零值；全部为零时取第一个非 nil 值（可能是真实的零）
+private func firstMeaningful(_ candidates: [Double?]) -> Double? {
+    let available = candidates.compactMap { $0 }
+    return available.first(where: { abs($0) > 0.001 }) ?? available.first
+}
+
 // MARK: - Extensions
 
 private extension Double {
@@ -783,5 +783,6 @@ private extension Double {
 
 private let appleRawCurrentKey = "AppleRawCurrent"
 private let smartBatteryVoltageKey = "Voltage"
+private let smartBatteryRawVoltageKey = "AppleRawBatteryVoltage"
 private let smartBatteryAmperageKey = "Amperage"
 private let smartBatteryInstantAmperageKey = "InstantAmperage"

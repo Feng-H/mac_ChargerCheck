@@ -92,6 +92,7 @@ hdiutil create -volname ChargingPowerTool -srcfolder ChargingPowerTool.app -ov -
 - 未使用私有 API，无法保证在所有未来硬件上可用
 
 ### 版本历史
+- **v2.3.3**（2026-10-03）：修复充电功率恒为 0W——部分机型 IOPS 的 Current 字段恒为 0（占位值），现改为在多来源读数中优先取非零值；状态栏真正启用三态图标（v2.3.1 的三态逻辑此前未生效）；功率显示保留一位小数
 - **v2.3.2**（2026-09-30）：菜单底部新增「版本 vX.Y.Z」显示
 - **v2.3.1**（2026-09-30）：状态栏图标三态化（正在充电/已接电源·已满/使用电池），修复插电但电池已满时与用电池图标相同的问题；功率显示符号规范化
 - **v2.3.0**（2026-09-30）：新增开机自启动（SMAppService 一键开关）；修复全新安装时登录项状态误判
@@ -190,6 +191,7 @@ hdiutil create -volname ChargingPowerTool -srcfolder ChargingPowerTool.app -ov -
 - No private APIs are used, so future hardware support can't be guaranteed
 
 ### Version History
+- **v2.3.3** (2026-10-03): fix wattage stuck at 0W — on some models the IOPS `Current` field is always 0 (placeholder); readings from multiple sources are now merged, preferring the first non-zero one; actually wire up the three-state menu-bar icon (the v2.3.1 logic was never applied); show wattage with one decimal
 - **v2.3.2** (2026-09-30): show the app version at the bottom of the menu
 - **v2.3.1** (2026-09-30): three-state menu-bar icon (charging / on AC, battery full / on battery); fixed icons colliding between "plugged in, battery full" and "on battery"; normalized wattage sign
 - **v2.3.0** (2026-09-30): launch-at-login toggle (SMAppService); fix login-item state misjudged on fresh installs
